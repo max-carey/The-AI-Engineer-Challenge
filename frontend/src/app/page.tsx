@@ -32,6 +32,14 @@ export default function Home() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      console.log('Making request to:', `${apiUrl}/api/chat`);
+      console.log('Request payload:', {
+        developer_message: developerMessage,
+        user_message: userMessage,
+        model: model,
+        api_key: apiKey.trim(),
+      });
+      
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: {
@@ -45,8 +53,11 @@ export default function Home() {
         }),
       });
 
+      console.log('Response status:', response.status);
       if (!response.ok) {
-        throw new Error('Network response was not ok');
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`Network response was not ok: ${response.status} ${errorText}`);
       }
 
       const reader = response.body?.getReader();
