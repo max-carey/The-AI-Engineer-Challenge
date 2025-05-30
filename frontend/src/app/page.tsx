@@ -31,7 +31,8 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      // Get the current URL and use it for the API
+      const apiUrl = typeof window !== 'undefined' ? window.location.origin : '';
       console.log('Making request to:', `${apiUrl}/api/chat`);
       console.log('Request payload:', {
         developer_message: developerMessage,
