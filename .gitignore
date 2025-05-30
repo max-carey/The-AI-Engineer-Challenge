@@ -1,6 +1,12 @@
 # Project Specific
 uv.lock
 
+# Vite
+.vite/
+dist/
+dist-ssr/
+*.local
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
