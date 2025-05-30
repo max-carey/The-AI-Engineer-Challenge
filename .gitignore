@@ -1,6 +1,14 @@
 # Project Specific
 uv.lock
 
+node_modules/**
+
+# Vite
+.vite/
+dist/
+dist-ssr/
+*.local
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
