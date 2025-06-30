@@ -36,8 +36,11 @@ export default function Home() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          developer_message: developerMessage,
-          user_message: userMessage,
+          messages: [
+            { role: 'system', content: developerMessage },
+            ...messages,
+            { role: 'user', content: userMessage }
+          ],
           model: model,
           api_key: apiKey.trim(),
         }),

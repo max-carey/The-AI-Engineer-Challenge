@@ -7,7 +7,7 @@ from pydantic import BaseModel
 # Import OpenAI client for interacting with OpenAI's API
 from openai import OpenAI
 import os
-from typing import Optional
+from typing import Optional, List
 
 print("Initializing FastAPI application")
 app = FastAPI(title="OpenAI Chat API")
@@ -22,18 +22,21 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers in requests
 )
 
+class Message(BaseModel):
+    role: str
+    content: str
+
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
-    developer_message: str  # Message from the developer/system
-    user_message: str      # Message from the user
+    messages: List[Message]  # Array of messages with role and content
     model: Optional[str] = "gpt-3.5-turbo"  # Changed to a valid model name
     api_key: str          # OpenAI API key for authentication
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
-    print(f"Received chat request - Model: {request.model}, Developer message length: {len(request.developer_message)}, User message length: {len(request.user_message)}")
+    print(f"Received chat request - Model: {request.model}, Messages count: {len(request.messages)}")
     
     try:
         print("Initializing OpenAI client")
@@ -43,13 +46,12 @@ async def chat(request: ChatRequest):
         async def generate():
             try:
                 print("Starting OpenAI chat completion request")
-                # Create a streaming chat completion request
+                # Convert messages to the format expected by OpenAI
+                openai_messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+                
                 stream = client.chat.completions.create(
                     model=request.model,
-                    messages=[
-                        {"role": "system", "content": request.developer_message},
-                        {"role": "user", "content": request.user_message}
-                    ],
+                    messages=openai_messages,
                     stream=True
                 )
                 
