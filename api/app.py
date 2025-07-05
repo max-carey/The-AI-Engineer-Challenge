@@ -1,5 +1,5 @@
 # Import required FastAPI components for building the API
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 # Import Pydantic for data validation and settings management
@@ -8,11 +8,18 @@ from pydantic import BaseModel
 from openai import OpenAI
 import os
 from typing import Optional, List
+import tempfile
+from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
+from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.openai_utils.embedding import EmbeddingModel
 
 print("Initializing FastAPI application")
 app = FastAPI(title="OpenAI Chat API")
 
-# Configure CORS (Cross-Origin Resource Sharing) middleware
+# Store vector database in memory
+_vector_db = None
+
+# Configure CORS middleware
 print("Configuring CORS middleware")
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +39,72 @@ class ChatRequest(BaseModel):
     messages: List[Message]  # Array of messages with role and content
     model: Optional[str] = "gpt-3.5-turbo"  # Changed to a valid model name
     api_key: str          # OpenAI API key for authentication
+    use_rag: Optional[bool] = False
+
+@app.post("/api/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
+    global _vector_db
+    temp_path = None
+    
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+    
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    try:
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_path = temp_file.name
+        
+        print(f"Temporary file created at: {temp_path}")
+        
+        try:
+            # Process PDF
+            loader = PDFLoader(temp_path)
+            documents = loader.load_documents()
+            print(f"PDF loaded successfully, document length: {len(documents)}")
+            
+            # Split text into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts(documents)
+            print(f"Text split into {len(chunks)} chunks")
+            
+            # Set OpenAI API key in environment before creating clients
+            print("Setting up OpenAI API key...")
+            os.environ["OPENAI_API_KEY"] = api_key
+            
+            # Create embeddings and store in vector database
+            print("Initializing embedding model...")
+            embedding_model = EmbeddingModel()
+            _vector_db = VectorDatabase(embedding_model=embedding_model)
+            print("Starting to build vector database...")
+            await _vector_db.abuild_from_list(chunks)
+            print("Vector database built successfully")
+            
+            # Clean up temporary file
+            os.unlink(temp_path)
+            print("Temporary file cleaned up")
+            
+            return {"message": "PDF processed successfully", "chunks": len(chunks)}
+        
+        except Exception as e:
+            print(f"Error processing PDF: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+    
+    except Exception as e:
+        print(f"Error in upload endpoint: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
@@ -48,6 +121,29 @@ async def chat(request: ChatRequest):
                 print("Starting OpenAI chat completion request")
                 # Convert messages to the format expected by OpenAI
                 openai_messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+                
+                # If RAG is enabled and we have a vector database, search for relevant chunks
+                if request.use_rag and _vector_db is not None:
+                    user_query = request.messages[-1].content
+                    os.environ["OPENAI_API_KEY"] = request.api_key  # Set API key for vector search
+                    relevant_chunks = _vector_db.search_by_text(
+                        user_query, 
+                        k=3, 
+                        return_as_text=True
+                    )
+
+                    print(f"Relevant chunks: {relevant_chunks}")
+                    
+                    context = "\n\n".join(relevant_chunks)
+                    system_message = {
+                        "role": "system",
+                        "content": f"""You are a helpful AI assistant. Answer questions based on the following context from the uploaded PDF:
+
+{context}
+
+If the question cannot be answered from the context, say so. Always maintain a friendly, forest-themed personality."""
+                    }
+                    openai_messages.insert(0, system_message)
                 
                 stream = client.chat.completions.create(
                     model=request.model,
