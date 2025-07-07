@@ -12,8 +12,10 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [useRag, setUseRag] = useState(false);
   const [isPdfUploaded, setIsPdfUploaded] = useState(false);
+  const [isAudioUploaded, setIsAudioUploaded] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [currentPdfName, setCurrentPdfName] = useState<string>('');
+  const [currentAudioName, setCurrentAudioName] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -63,6 +65,45 @@ export default function Home() {
     }
   };
 
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !apiKey) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('api_key', apiKey);
+
+    try {
+      const response = await fetch('/api/upload-audio', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${errorText}`);
+      }
+
+      const result = await response.json();
+      setIsAudioUploaded(true);
+      setUseRag(true);
+      setCurrentAudioName(file.name);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `🎵 I've transcribed your audio "${file.name}" successfully! I found ${result.chunks} sections to learn from. You can now ask me questions about the audio content.` 
+      }]);
+    } catch (error) {
+      console.error('Upload error:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, there was an error uploading your audio file.' 
+      }]);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const clearPdfContext = () => {
     setIsPdfUploaded(false);
     setUseRag(false);
@@ -70,6 +111,16 @@ export default function Home() {
     setMessages(prev => [...prev, {
       role: 'assistant',
       content: '🌲 PDF context has been cleared. I will no longer use it for answering questions.'
+    }]);
+  };
+
+  const clearAudioContext = () => {
+    setIsAudioUploaded(false);
+    setUseRag(false);
+    setCurrentAudioName('');
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '🎵 Audio context has been cleared. I will no longer use it for answering questions.'
     }]);
   };
 
@@ -188,69 +239,131 @@ export default function Home() {
               <textarea value={developerMessage} onChange={e => setDeveloperMessage(e.target.value)} placeholder="Set the AI's behavior..." className="w-full h-24 bg-white/10 border-none rounded-lg px-4 py-2 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 transition-all resize-none" />
             </div>
             <div>
-              <label className="text-xs text-gray-300">PDF Upload</label>
+              <label className="text-xs text-gray-300">File Upload</label>
               <div className="mt-2 flex flex-col gap-4">
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={handlePdfUpload}
-                  disabled={!apiKey || isUploading}
-                  className="hidden"
-                  id="pdf-upload"
-                />
-                <label
-                  htmlFor="pdf-upload"
-                  className={`w-full h-12 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed 
-                    ${isPdfUploaded ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20 hover:border-white/40'} 
-                    cursor-pointer transition-all ${(!apiKey || isUploading) && 'opacity-50 cursor-not-allowed'}`}
-                >
-                  {isUploading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-                      <span>Uploading...</span>
-                    </div>
-                  ) : isPdfUploaded ? (
-                    <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span>PDF Uploaded</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      <span>Upload PDF</span>
-                    </div>
-                  )}
-                </label>
-                {isPdfUploaded && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span className="truncate">{currentPdfName}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
+                {/* PDF Upload */}
+                <div>
+                  <label className="text-xs text-gray-400 mb-2 block">PDF Upload</label>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={handlePdfUpload}
+                    disabled={!apiKey || isUploading}
+                    className="hidden"
+                    id="pdf-upload"
+                  />
+                  <label
+                    htmlFor="pdf-upload"
+                    className={`w-full h-10 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed 
+                      ${isPdfUploaded ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20 hover:border-white/40'} 
+                      cursor-pointer transition-all ${(!apiKey || isUploading) && 'opacity-50 cursor-not-allowed'}`}
+                  >
+                    {isUploading ? (
                       <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="use-rag"
-                          checked={useRag}
-                          onChange={e => setUseRag(e.target.checked)}
-                          className="rounded border-white/20 bg-white/10 text-emerald-500 focus:ring-emerald-400/40"
-                        />
-                        <label htmlFor="use-rag" className="text-sm">Use PDF knowledge</label>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                        <span className="text-sm">Uploading...</span>
+                      </div>
+                    ) : isPdfUploaded ? (
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-sm">PDF Uploaded</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="text-sm">Upload PDF</span>
+                      </div>
+                    )}
+                  </label>
+                  {isPdfUploaded && (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="truncate text-xs">{currentPdfName}</span>
                       </div>
                       <button
                         onClick={clearPdfContext}
-                        className="text-sm text-red-400 hover:text-red-300 transition-colors"
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
                       >
                         Clear PDF
                       </button>
                     </div>
+                  )}
+                </div>
+
+                {/* Audio Upload */}
+                <div>
+                  <label className="text-xs text-gray-400 mb-2 block">Audio Upload</label>
+                  <input
+                    type="file"
+                    accept=".mp3,.wav,.m4a,.flac,.ogg,.aac,.wma"
+                    onChange={handleAudioUpload}
+                    disabled={!apiKey || isUploading}
+                    className="hidden"
+                    id="audio-upload"
+                  />
+                  <label
+                    htmlFor="audio-upload"
+                    className={`w-full h-10 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed 
+                      ${isAudioUploaded ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20 hover:border-white/40'} 
+                      cursor-pointer transition-all ${(!apiKey || isUploading) && 'opacity-50 cursor-not-allowed'}`}
+                  >
+                    {isUploading ? (
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                        <span className="text-sm">Uploading...</span>
+                      </div>
+                    ) : isAudioUploaded ? (
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-sm">Audio Uploaded</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                        </svg>
+                        <span className="text-sm">Upload Audio</span>
+                      </div>
+                    )}
+                  </label>
+                  {isAudioUploaded && (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                        </svg>
+                        <span className="truncate text-xs">{currentAudioName}</span>
+                      </div>
+                      <button
+                        onClick={clearAudioContext}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Clear Audio
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* RAG Toggle */}
+                {(isPdfUploaded || isAudioUploaded) && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="checkbox"
+                      id="use-rag"
+                      checked={useRag}
+                      onChange={e => setUseRag(e.target.checked)}
+                      className="rounded border-white/20 bg-white/10 text-emerald-500 focus:ring-emerald-400/40"
+                    />
+                    <label htmlFor="use-rag" className="text-xs">Use file knowledge</label>
                   </div>
                 )}
               </div>
@@ -319,7 +432,7 @@ export default function Home() {
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
-                          <span>Upload a PDF to chat about</span>
+                          <span>Upload a file to chat about</span>
                         </button>
                       </div>
                     )}
@@ -362,7 +475,7 @@ export default function Home() {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder={useRag ? "Ask me about the PDF..." : "Type your message..."}
+                placeholder={useRag ? "Ask me about the uploaded file..." : "Type your message..."}
                 className="flex-1 h-12 bg-white/20 border-none rounded-xl px-4 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 text-base transition-all min-w-0"
                 disabled={isLoading || !apiKey.trim()}
               />

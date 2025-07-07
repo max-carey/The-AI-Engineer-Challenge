@@ -87,6 +87,33 @@ class EmbeddingModel:
         )
         return [item.embedding for item in response.data]
 
+    def get_embedding(self, text: str) -> List[float]:
+        """
+        Compatibility wrapper to embed a single text.
+
+        This method is an alias for `embed_text` so that components which
+        expect a `get_embedding` method (e.g., `VectorDatabase`) continue to
+        work without modification.
+        """
+        return self.embed_text(text)
+
+    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """
+        Compatibility wrapper to embed multiple texts.
+
+        An alias for `embed_texts` keeping the public interface stable.
+        """
+        return self.embed_texts(texts)
+
+    async def async_get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """
+        Asynchronously embed multiple texts.
+
+        This is an alias for `aembed_texts`, provided for backward
+        compatibility.
+        """
+        return await self.aembed_texts(texts)
+
 
 if __name__ == "__main__":
     embedding_model = EmbeddingModel()

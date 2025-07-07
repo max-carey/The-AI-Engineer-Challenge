@@ -41,6 +41,83 @@ class ChatRequest(BaseModel):
     api_key: str          # OpenAI API key for authentication
     use_rag: Optional[bool] = False
 
+@app.post("/api/upload-audio")
+async def upload_audio(file: UploadFile = File(...), api_key: str = Form(...)):
+    global _vector_db
+    temp_path = None
+    
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+    
+    # Check if file is an audio file
+    allowed_extensions = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac', '.wma']
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Only audio files are allowed. Supported formats: {', '.join(allowed_extensions)}")
+    
+    try:
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_path = temp_file.name
+        
+        print(f"Temporary audio file created at: {temp_path}")
+        
+        try:
+            # Initialize OpenAI client for Whisper API
+            client = OpenAI(api_key=api_key)
+            
+            # Transcribe audio using Whisper API
+            print("Starting audio transcription...")
+            with open(temp_path, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="text"
+                )
+            
+            print(f"Audio transcribed successfully, transcript length: {len(transcript)}")
+            
+            # Split transcript into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts([transcript])
+            print(f"Transcript split into {len(chunks)} chunks")
+            
+            # Set OpenAI API key in environment before creating clients
+            print("Setting up OpenAI API key...")
+            os.environ["OPENAI_API_KEY"] = api_key
+            
+            # Create embeddings and store in vector database
+            print("Initializing embedding model...")
+            embedding_model = EmbeddingModel()
+            _vector_db = VectorDatabase(embedding_model=embedding_model)
+            print("Starting to build vector database...")
+            await _vector_db.abuild_from_list(chunks)
+            print("Vector database built successfully")
+            
+            # Clean up temporary file
+            os.unlink(temp_path)
+            print("Temporary file cleaned up")
+            
+            return {"message": "Audio processed successfully", "chunks": len(chunks), "transcript": transcript}
+        
+        except Exception as e:
+            print(f"Error processing audio: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+    
+    except Exception as e:
+        print(f"Error in upload endpoint: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 @app.post("/api/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
     global _vector_db
@@ -137,7 +214,7 @@ async def chat(request: ChatRequest):
                     context = "\n\n".join(relevant_chunks)
                     system_message = {
                         "role": "system",
-                        "content": f"""You are a helpful AI assistant. Answer questions based on the following context from the uploaded PDF:
+                        "content": f"""You are a helpful AI assistant. Answer questions based on the following context from the uploaded file:
 
 {context}
 
@@ -173,7 +250,7 @@ If the question cannot be answered from the context, say so. Always maintain a f
 # Define a health check endpoint to verify API status
 @app.get("/api/health")
 async def health_check():
-    print("Health check endpoint called")
+    print("Health check requested")
     return {"status": "ok"}
 
 # Entry point for running the application directly

@@ -1,6 +1,8 @@
 import numpy as np
-from typing import List, Optional, Union
+from collections import defaultdict
+from typing import List, Tuple, Callable
 from aimakerspace.openai_utils.embedding import EmbeddingModel
+import asyncio
 
 
 def cosine_similarity(vector_a: np.array, vector_b: np.array) -> float:
@@ -12,96 +14,43 @@ def cosine_similarity(vector_a: np.array, vector_b: np.array) -> float:
 
 
 class VectorDatabase:
-    def __init__(self, embedding_model: Optional[EmbeddingModel] = None):
-        """Initialize the vector database with an optional embedding model"""
+    def __init__(self, embedding_model: EmbeddingModel = None):
+        self.vectors = defaultdict(np.array)
         self.embedding_model = embedding_model or EmbeddingModel()
-        self.texts = []
-        self.embeddings = []
-    
-    async def abuild_from_list(self, texts: List[str]) -> None:
-        """
-        Asynchronously build the vector database from a list of texts
-        
-        Args:
-            texts: List of texts to embed and store
-        """
-        if not texts:
-            return
-            
-        print(f"Getting embeddings for {len(texts)} chunks...")
-        self.texts = texts
-        self.embeddings = await self.embedding_model.aembed_texts(texts)
-        print("Database built successfully")
-    
-    def build_from_list(self, texts: List[str]) -> None:
-        """
-        Synchronously build the vector database from a list of texts
-        
-        Args:
-            texts: List of texts to embed and store
-        """
-        if not texts:
-            return
-            
-        self.texts = texts
-        self.embeddings = self.embedding_model.embed_texts(texts)
-    
-    def search_by_embedding(self, query_embedding: List[float], k: int = 3) -> List[str]:
-        """
-        Search for the k most similar texts using a pre-computed query embedding
-        
-        Args:
-            query_embedding: The embedding to search with
-            k: Number of results to return
-            
-        Returns:
-            List of the k most similar texts
-        """
-        if not self.embeddings:
-            return []
-            
-        # Convert embeddings to numpy arrays for efficient computation
-        query_embedding = np.array(query_embedding)
-        embeddings = np.array(self.embeddings)
-        
-        # Compute cosine similarities
-        similarities = np.dot(embeddings, query_embedding) / (
-            np.linalg.norm(embeddings, axis=1) * np.linalg.norm(query_embedding)
-        )
-        
-        # Get indices of top k similar texts
-        top_k_indices = np.argsort(similarities)[-k:][::-1]
-        
-        return [self.texts[i] for i in top_k_indices]
-    
-    async def asearch_by_text(self, query_text: str, k: int = 3, return_as_text: bool = False) -> Union[List[str], str]:
-        """
-        Asynchronously search for the k most similar texts using a query text
-        
-        Args:
-            query_text: The text to search with
-            k: Number of results to return
-            return_as_text: If True, returns results joined by newlines
-            
-        Returns:
-            List of the k most similar texts, or a single string if return_as_text is True
-        """
-        query_embedding = await self.embedding_model.aembed_text(query_text)
-        results = self.search_by_embedding(query_embedding, k)
-        return "\n\n".join(results) if return_as_text else results
-    
-    def search_by_text(self, query_text: str, k: int = 3, return_as_text: bool = False) -> Union[List[str], str]:
-        """
-        Synchronously search for the k most similar texts using a query text
-        
-        Args:
-            query_text: The text to search with
-            k: Number of results to return
-            return_as_text: If True, returns results joined by newlines
-            
-        Returns:
-            List of the k most similar texts, or a single string if return_as_text is True
-        """
-        query_embedding = self.embedding_model.embed_text(query_text)
+
+    def insert(self, key: str, vector: np.array) -> None:
+        self.vectors[key] = vector
+
+    def search(
+        self,
+        query_vector: np.array,
+        k: int,
+        distance_measure: Callable = cosine_similarity,
+    ) -> List[Tuple[str, float]]:
+        scores = [
+            (key, distance_measure(query_vector, vector))
+            for key, vector in self.vectors.items()
+        ]
+        return sorted(scores, key=lambda x: x[1], reverse=True)[:k]
+
+    def search_by_text(
+        self,
+        query_text: str,
+        k: int,
+        distance_measure: Callable = cosine_similarity,
+        return_as_text: bool = False,
+    ) -> List[Tuple[str, float]]:
+        query_vector = self.embedding_model.get_embedding(query_text)
+        results = self.search(query_vector, k, distance_measure)
+        return [result[0] for result in results] if return_as_text else results
+
+    def retrieve_from_key(self, key: str) -> np.array:
+        return self.vectors.get(key, None)
+
+    async def abuild_from_list(self, list_of_text: List[str]) -> "VectorDatabase":
+        embeddings = await self.embedding_model.async_get_embeddings(list_of_text)
+        for text, embedding in zip(list_of_text, embeddings):
+            self.insert(text, np.array(embedding))
+        return self
         results = self.search_by_embedding(query_embedding, k)
         return "\n\n".join(results) if return_as_text else results
